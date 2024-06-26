@@ -184,10 +184,13 @@ tenant_bp = tenancy.create_tenant_blueprint('tenant')
 def public_index():
     return 'Welcome to the public index page!'
 
-@public_bp.route('/test')
-def public_test():
-    return 'Never gonna give you up, never gonna let you down, never gonna run around and desert you.'
+# Define routes for tenant blueprint
+@tenant_bp.route('/test')
+def tenant_test():
+    tenant = g.tenant if hasattr(g, 'tenant') else 'unknown'
+    return f'Welcome to the tenant index page for {tenant}!'
 
+# Demonstration of utility functions
 @public_bp.route('/create_tenant', methods=['POST'])
 def create_tenant_route():
     data = request.json
@@ -246,20 +249,7 @@ def delete_tenant_route(tenant_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Define routes for tenant blueprint
-@tenant_bp.route('/test')
-def tenant_test():
-    tenant = g.tenant if hasattr(g, 'tenant') else 'unknown'
-    return f'Welcome to the tenant index page for {tenant}!'
 
-@tenant_bp.route('/woah')
-def tenant_woah():
-    return (
-        "We're no strangers to love, "
-        "You know the rules and so do I. "
-        "A full commitment's what I'm thinking of, "
-        "You wouldn't get this from any other guy."
-    )
 
 # Register blueprints
 app.register_blueprint(public_bp)

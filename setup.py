@@ -2,13 +2,13 @@ from setuptools import setup, find_packages
 
 setup(
     name='flask-tenants',
-    version='0.1.0',
+    version='0.2.0',
     author='Cory Cline',
     author_email='cory@corycline.com',
     description='A Flask extension for multi-tenancy support',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
-    url='https://github.com/therealwokewok/flask_tenants',
+    url='https://github.com/Flask-Tenants/flask-tenants',
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
