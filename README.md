@@ -15,7 +15,7 @@ pip install flask-tenants
 ### Basic Setup
 
 1. Create a Flask application and initialize SQLAlchemy.
-2. Set up the multi-tenancy middleware.
+2. Set up the multitenancy middleware.
 
 ```python
 from flask import Flask
