@@ -19,7 +19,8 @@ jobs:
         python-version: [3.7, 3.8, 3.9, 3.10, 3.11, 3.12]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Debug message
         run: echo "Workflow is triggered for tag ${{ github.ref }}"
@@ -42,6 +43,7 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_SECRET }}
         run: |
+          echo "Uploading package to PyPI..."
           twine upload dist/*
 
       - name: Create GitHub Release
