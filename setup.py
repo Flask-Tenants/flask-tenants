@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='flask-tenants',
-    version='0.2.0',
+    version='0.3.4',
     author='Cory Cline',
     author_email='cory@corycline.com',
     description='A Flask extension for multi-tenancy support',
