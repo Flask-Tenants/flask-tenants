@@ -53,7 +53,7 @@ class MultiTenancyMiddleware:
     def _switch_tenant_schema(self, tenant):
         session = scoped_session(sessionmaker(bind=self.db.engine))()
         try:
-            session.execute(text('SET search_path TO :schema'), {'schema': tenant})
+            session.execute(text('SET search_path TO :schema, public'), {'schema': tenant})
             session.commit()
         except Exception as e:
             session.rollback()
