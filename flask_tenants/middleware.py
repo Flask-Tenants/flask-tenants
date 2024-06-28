@@ -47,12 +47,16 @@ class MultiTenancyMiddleware:
         g.db_session = scoped_session(sessionmaker(bind=self.db.engine))()
         tenant = request.headers.get('X-TENANT', self.default_schema)
         g.tenant = tenant
-        tenant_object = g.db_session.one_or_404(self.db.select(self.db.Model.Tenant).filter_by(name=tenant),
-                                                description="Tenant not found")
-        if hasattr(tenant_object, 'deactivated'):
-            if tenant_object.deactivated:
+        if tenant != self.default_schema:
+            tenant_object = g.db_session.query(self.db.Model.Tenant).filter_by(name=tenant).first()
+            if tenant_object is None:
+                logger.debug(f"Tenant '{tenant}' not found.")  # Debug log
+                abort(404, description="Tenant not found")
+
+            if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
                 abort(404, description="Tenant deactivated")
-        self._switch_tenant_schema(tenant)
+
+            self._switch_tenant_schema(tenant)
 
     def _teardown_request_func(self, exception=None):
         self._reset_schema()
@@ -62,7 +66,7 @@ class MultiTenancyMiddleware:
             g.db_session.execute(text('SET search_path TO :schema, public'), {'schema': tenant})
             g.db_session.commit()
         except Exception as e:
-            g.session.rollback()
+            g.db_session.rollback()
             logger.error(f"Tenant schema switch failed: {e}")
             abort(500, description="Tenant schema switch failed")
 
