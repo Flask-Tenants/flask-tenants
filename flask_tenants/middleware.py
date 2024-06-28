@@ -44,10 +44,11 @@ class MultiTenancyMiddleware:
         app.teardown_request(self._teardown_request_func)
 
     def _before_request_func(self):
+        g.db_session = scoped_session(sessionmaker(bind=self.db.engine))()
         tenant = request.headers.get('X-TENANT', self.default_schema)
         g.tenant = tenant
-        tenant_object = self.db.one_or_404(self.db.select(self.db.Model.Tenant).filter_by(name=tenant),
-                                           description="Tenant not found")
+        tenant_object = g.db_session.one_or_404(self.db.select(self.db.Model.Tenant).filter_by(name=tenant),
+                                                description="Tenant not found")
         if hasattr(tenant_object, 'deactivated'):
             if tenant_object.deactivated:
                 abort(404, description="Tenant deactivated")
@@ -57,28 +58,24 @@ class MultiTenancyMiddleware:
         self._reset_schema()
 
     def _switch_tenant_schema(self, tenant):
-        session = scoped_session(sessionmaker(bind=self.db.engine))()
         try:
-            session.execute(text('SET search_path TO :schema, public'), {'schema': tenant})
-            session.commit()
+            g.db_session.execute(text('SET search_path TO :schema, public'), {'schema': tenant})
+            g.db_session.commit()
         except Exception as e:
-            session.rollback()
+            g.session.rollback()
             logger.error(f"Tenant schema switch failed: {e}")
             abort(500, description="Tenant schema switch failed")
-        finally:
-            session.close()
 
     def _reset_schema(self):
-        session = scoped_session(sessionmaker(bind=self.db.engine))()
         try:
-            session.execute(text('SET search_path TO public'))
-            session.commit()
+            g.db_session.execute(text('SET search_path TO public'))
+            g.db_session.commit()
         except Exception as e:
-            session.rollback()
+            g.db_session.rollback()
             logger.error(f"Schema reset failed: {e}")
             abort(500, description="Schema reset failed")
         finally:
-            session.close()
+            g.db_session.close()
 
     def create_tenant_blueprint(self, name):
         return Blueprint(name, __name__, url_prefix=self.tenant_url_prefix)

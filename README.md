@@ -24,14 +24,13 @@ CREATE DATABASE flask_tenants;
 
 ```sql
 \c flask_tenants
-CREATE SCHEMA public;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE SCHEMA IF NOT EXISTS public;
 ```
 
 3. Ensure your database user has the necessary privileges to create schemas:
 
 ```sql
-ALTER USER your_user WITH SUPERUSER;
+GRANT ALL PRIVILEGES ON DATABASE "flask_tenants" to your_user;
 ```
 
 ## Usage
@@ -126,6 +125,16 @@ app.register_blueprint(tenant_bp)
 
 You need to implement your own CRUD operations for managing tenants. Below are examples of how to create, retrieve, update, and delete tenants. The Flask-Tenants extension uses SQLAlchemy hooks to handle schema management automatically when these operations are performed.
 
+### Note:
+`g.db_session` object must be used for all tenant-scoped database accesses for search_path 
+schema to automatically apply:
+
+```python
+from flask import g
+
+g.db_session.query(YourTenantScopedModel).all()
+```
+
 ## Examples
 
 ### Create a Tenant
@@ -147,16 +156,16 @@ def create_tenant():
         phone_number=data['phone_number'],
         address=data['address']
     )
-    db.session.add(tenant)
-    db.session.flush()  # Flush to get the tenant ID
+    db.db_session.add(tenant)
+    db.db_session.flush()  # Flush to get the tenant ID
 
     domain = Domain(
         domain_name=data['domain_name'],
         tenant_id=tenant.id,
         is_primary=True
     )
-    db.session.add(domain)
-    db.session.commit()
+    db.db_session.add(domain)
+    db.db_session.commit()
 
     return jsonify({'message': 'Tenant created successfully', 'tenant': tenant.to_dict()}), 201
 ```
@@ -188,7 +197,7 @@ def update_tenant(tenant_id):
     tenant.name = data['name']
     tenant.phone_number = data['phone_number']
     tenant.address = data['address']
-    db.session.commit()
+    db.db_session.commit()
 
     return jsonify({'message': 'Tenant updated successfully', 'tenant': tenant.to_dict()}), 200
 ```
@@ -202,8 +211,8 @@ def delete_tenant(tenant_id):
     if not tenant:
         return jsonify({'error': 'Tenant not found'}), 404
 
-    db.session.delete(tenant)
-    db.session.commit()
+    db.db_session.delete(tenant)
+    db.db_session.commit()
 
     return jsonify({'message': 'Tenant deleted successfully'}), 200
 ```
@@ -264,12 +273,12 @@ def create_tenant_route():
         return jsonify({"error": "domain_name is required"}), 400
 
     tenant = Tenant(**tenant_data)
-    db.session.add(tenant)
-    db.session.flush()  # Flush to get the tenant ID
+    db.db_session.add(tenant)
+    db.db_session.flush()  # Flush to get the tenant ID
 
     domain = Domain(domain_name=domain_name, tenant_id=tenant.id, is_primary=True)
-    db.session.add(domain)
-    db.session.commit()
+    db.db_session.add(domain)
+    db.db_session.commit()
 
     return jsonify({"message": f"Tenant {tenant.name} created successfully", "tenant": {
         "id": tenant.id,
@@ -310,7 +319,7 @@ def update_tenant_route(tenant_id):
             if key in Tenant.__table__.columns.keys():
                 setattr(tenant, key, value)
 
-        db.session.commit()
+        db.db_session.commit()
         return jsonify({
             "message": f"Tenant {tenant.name} updated successfully",
             "tenant": {
@@ -331,8 +340,8 @@ def delete_tenant_route(tenant_id):
         if not tenant:
             return jsonify({"error": "Tenant not found"}), 404
 
-        db.session.delete(tenant)
-        db.session.commit()
+        db.db_session.delete(tenant)
+        db.db_session.commit()
         return jsonify({"message": "Tenant deleted successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
