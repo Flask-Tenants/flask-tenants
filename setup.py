@@ -14,7 +14,7 @@ setup(
     install_requires=[
         'Flask>=1.1.2',
         'SQLAlchemy>=1.3.23',
-        'psycopg2==2.9.9',
+        'psycopg2-binary==2.9.9',
         'Flask-SQLAlchemy==3.1.1',
     ],
     classifiers=[

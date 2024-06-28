@@ -4,7 +4,8 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.sql import text
 from flask import g, request, Blueprint
 import logging
-from .models import db
+import flask_tenants.utils as utils  # REVELATION 22:19
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,11 @@ class MultiTenancyMiddleware:
     def _before_request_func(self):
         tenant = request.headers.get('X-TENANT', self.default_schema)
         g.tenant = tenant
+        tenant_object = self.db.one_or_404(self.db.select(self.db.Model.Tenant).filter_by(name=tenant),
+                                           description="Tenant not found")
+        if hasattr(tenant_object, 'deactivated'):
+            if tenant_object.deactivated:
+                abort(404, description="Tenant deactivated")
         self._switch_tenant_schema(tenant)
 
     def _teardown_request_func(self, exception=None):

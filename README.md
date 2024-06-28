@@ -71,6 +71,22 @@ class Domain(BaseDomain):
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), nullable=False)
 ```
 
+#### Tenant Deactivation
+If you'd like to be able to deactivate a tenant without deleting it, 
+for example if a SaaS customer forgets to pay their bill, you can optionally
+add a `deactivated` field to your tenant model:
+
+```python
+class Tenant(BaseTenant):
+    __tablename__ = 'tenants'
+    # ...
+    deactivated = db.Column(db.Boolean(), nullable=False, default=False)
+```
+
+Flask-Tenants will check if this field exists early in the request lifecycle and abort 
+the request early with a 404 if it is `True`.
+
+
 ### Initialization
 
 Initialize the Flask-Tenants extension with custom models.
@@ -118,6 +134,7 @@ You need to implement your own CRUD operations for managing tenants. Below are e
 from flask import request, jsonify
 from test_app.models import Tenant, Domain
 from test_app import db
+
 
 @app.route('/create_tenant', methods=['POST'])
 def create_tenant():
@@ -222,14 +239,17 @@ tenancy = create_tenancy(app, db, tenant_url_prefix='/_tenant')
 public_bp = tenancy.create_public_blueprint('public')
 tenant_bp = tenancy.create_tenant_blueprint('tenant')
 
+
 @public_bp.route('/')
 def public_index():
     return 'Welcome to the public index page!'
+
 
 @tenant_bp.route('/')
 def tenant_index():
     tenant = g.tenant if hasattr(g, 'tenant') else 'unknown'
     return f'Welcome to the tenant index page for {tenant}!'
+
 
 # Example CRUD Routes
 @public_bp.route('/create_tenant', methods=['POST'])
@@ -258,6 +278,7 @@ def create_tenant_route():
         "address": tenant.address
     }}), 201
 
+
 @public_bp.route('/get_tenant/<int:tenant_id>', methods=['GET'])
 def get_tenant_route(tenant_id):
     try:
@@ -272,6 +293,7 @@ def get_tenant_route(tenant_id):
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @public_bp.route('/update_tenant/<int:tenant_id>', methods=['PUT'])
 def update_tenant_route(tenant_id):
@@ -301,6 +323,7 @@ def update_tenant_route(tenant_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @public_bp.route('/delete_tenant/<int:tenant_id>', methods=['DELETE'])
 def delete_tenant_route(tenant_id):
     try:
@@ -313,6 +336,7 @@ def delete_tenant_route(tenant_id):
         return jsonify({"message": "Tenant deleted successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 app.register_blueprint(public_bp)
 app.register_blueprint(tenant_bp)
