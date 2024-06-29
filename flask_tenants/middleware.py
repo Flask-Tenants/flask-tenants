@@ -8,7 +8,7 @@ from .models import db
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TENANT_URL_PREFIX = '/StrangeWomenLyingInPondsDistributingSwordsIsNoBasisForASystemOfGovernment'
+DEFAULT_TENANT_URL_PREFIX = '/_tenant'
 
 
 class URLRewriteMiddleware:
@@ -19,12 +19,13 @@ class URLRewriteMiddleware:
 
     def __call__(self, environ, start_response):
         req = Request(environ)
-        host = req.host.split(':')[0]  # Extract host without port
+        host = req.host.split(':')[0]
 
         if '.' in host and host.split('.')[0] not in self.non_tenant_subdomains:
             subdomain = host.split('.')[0]
             environ['PATH_INFO'] = f'{self.tenant_url_prefix}{req.path}'
             environ['HTTP_X_TENANT'] = subdomain
+            logger.debug(f"Rewriting URL for tenant: {subdomain}")
 
         return self.app(environ, start_response)
 
@@ -47,6 +48,7 @@ class MultiTenancyMiddleware:
 
     def _before_request_func(self):
         tenant = request.headers.get('X-TENANT', self.default_schema)
+        logger.debug(f"Tenant from header: {tenant}")
         g.tenant = tenant
         g.db_session = self.Session()
         self._switch_tenant_schema(tenant)
@@ -57,8 +59,9 @@ class MultiTenancyMiddleware:
 
     def _switch_tenant_schema(self, tenant):
         try:
-            g.db_session.execute(text('SET search_path TO :schema'), {'schema': tenant})
+            g.db_session.execute(text('SET search_path TO :schema, public'), {'schema': tenant})
             g.db_session.commit()
+            logger.debug(f"Switched to schema: {tenant}")
         except Exception as e:
             g.db_session.rollback()
             logger.error(f"Tenant schema switch failed: {e}")
@@ -68,6 +71,7 @@ class MultiTenancyMiddleware:
         try:
             g.db_session.execute(text('SET search_path TO public'))
             g.db_session.commit()
+            logger.debug("Schema reset to public")
         except Exception as e:
             g.db_session.rollback()
             logger.error(f"Schema reset failed: {e}")
