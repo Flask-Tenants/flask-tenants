@@ -2,10 +2,9 @@ from werkzeug.wrappers import Request
 from werkzeug.exceptions import abort
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.sql import text
-from flask import g, request, Blueprint
+from flask import g, request, Blueprint, current_app
 import logging
-import flask_tenants.utils as utils  # REVELATION 22:19
-
+from .models import db
 
 logger = logging.getLogger(__name__)
 
@@ -40,30 +39,25 @@ class MultiTenancyMiddleware:
         if self.db is None:
             raise ValueError("Database instance must be provided")
 
+        with app.app_context():
+            self.Session = scoped_session(sessionmaker(bind=db.engine))
+
         app.before_request(self._before_request_func)
         app.teardown_request(self._teardown_request_func)
 
     def _before_request_func(self):
-        g.db_session = scoped_session(sessionmaker(bind=self.db.engine))()
         tenant = request.headers.get('X-TENANT', self.default_schema)
         g.tenant = tenant
-        if tenant != self.default_schema:
-            tenant_object = g.db_session.query(self.db.Model.Tenant).filter_by(name=tenant).first()
-            if tenant_object is None:
-                logger.debug(f"Tenant '{tenant}' not found.")  # Debug log
-                abort(404, description="Tenant not found")
-
-            if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
-                abort(404, description="Tenant deactivated")
-
-            self._switch_tenant_schema(tenant)
+        g.db_session = self.Session()
+        self._switch_tenant_schema(tenant)
 
     def _teardown_request_func(self, exception=None):
         self._reset_schema()
+        self.Session.remove()
 
     def _switch_tenant_schema(self, tenant):
         try:
-            g.db_session.execute(text('SET search_path TO :schema, public'), {'schema': tenant})
+            g.db_session.execute(text('SET search_path TO :schema'), {'schema': tenant})
             g.db_session.commit()
         except Exception as e:
             g.db_session.rollback()
@@ -78,8 +72,6 @@ class MultiTenancyMiddleware:
             g.db_session.rollback()
             logger.error(f"Schema reset failed: {e}")
             abort(500, description="Schema reset failed")
-        finally:
-            g.db_session.close()
 
     def create_tenant_blueprint(self, name):
         return Blueprint(name, __name__, url_prefix=self.tenant_url_prefix)
