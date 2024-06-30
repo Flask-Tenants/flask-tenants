@@ -1,4 +1,3 @@
-# C:\users\cory\test_tenants_app\flask_tenants\utils.py
 import logging
 from sqlalchemy import event
 from sqlalchemy.orm import scoped_session, sessionmaker, Session
