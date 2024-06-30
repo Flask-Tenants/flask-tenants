@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TENANT_URL_PREFIX = '/StrangeWomenLyingInPondsDistributingSwordsIsNoBasisForASystemOfGovernment'
 
+
 class URLRewriteMiddleware:
     def __init__(self, app, non_tenant_subdomains=None, tenant_url_prefix=DEFAULT_TENANT_URL_PREFIX):
         self.app = app
@@ -26,6 +27,7 @@ class URLRewriteMiddleware:
             environ['HTTP_X_TENANT'] = subdomain
 
         return self.app(environ, start_response)
+
 
 class MultiTenancyMiddleware:
     def __init__(self, app, db, default_schema='public', tenant_url_prefix=DEFAULT_TENANT_URL_PREFIX):
@@ -83,6 +85,7 @@ class MultiTenancyMiddleware:
 
     def create_public_blueprint(self, name):
         return Blueprint(name, __name__)
+
 
 def create_tenancy(app, db, non_tenant_subdomains=None, tenant_url_prefix=DEFAULT_TENANT_URL_PREFIX):
     url_rewrite_middleware = URLRewriteMiddleware(app.wsgi_app, non_tenant_subdomains, tenant_url_prefix)
