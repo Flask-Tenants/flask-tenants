@@ -44,18 +44,17 @@ class MultiTenancyMiddleware:
 
     def _before_request_func(self):
         g.db_session = scoped_session(sessionmaker(bind=self.db.engine))()
-        tenant = request.headers.get('X-TENANT', self.default_schema)
-        g.tenant = tenant
-        if tenant != self.default_schema:
-            tenant_object = g.db_session.query(self.db.Model.Tenant).filter_by(name=tenant).first()
+        g.tenant = request.headers.get('X-TENANT', self.default_schema)
+        if g.tenant != self.default_schema:
+            tenant_object = g.db_session.query(self.db.Model.Tenant).filter_by(name=g.tenant).first()
             if tenant_object is None:
-                logger.debug(f"Tenant '{tenant}' not found.")
+                logger.debug(f"Tenant '{g.tenant}' not found.")
                 abort(404, description="Tenant not found")
 
             if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
                 abort(404, description="Tenant deactivated")
 
-            self._switch_tenant_schema(tenant)
+            self._switch_tenant_schema(g.tenant)
 
     def _teardown_request_func(self, exception=None):
         self._reset_schema()
