@@ -110,11 +110,11 @@ def register_event_listeners():
     @event.listens_for(Session, 'before_flush')
     def before_flush(session, flush_context, instances):
         tenant_model = getattr(db.Model, 'Tenant', None)
+        session._already_renamed = getattr(session, '_already_renamed', set())
+
         for instance in session.new:
             if tenant_model and isinstance(instance, tenant_model):
                 create_schema_and_tables(instance.name)
-            else:
-                pass
 
         for instance in session.dirty:
             if tenant_model and isinstance(instance, tenant_model):
@@ -122,9 +122,10 @@ def register_event_listeners():
                 if history.has_changes():
                     old_name = history.deleted[0]
                     new_name = instance.name
-                    if old_name != new_name:
+                    if old_name != new_name and old_name not in session._already_renamed:
                         try:
                             rename_schema_and_update_tables(old_name, new_name)
+                            session._already_renamed.add(old_name)
                         except RuntimeError as e:
                             logging.error(f"Error renaming schema before flush: {e}")
                             raise
@@ -132,15 +133,14 @@ def register_event_listeners():
     @event.listens_for(Session, 'after_flush')
     def after_flush(session, flush_context):
         tenant_model = getattr(db.Model, 'Tenant', None)
-        processed_tenants = set()
 
         for instance in session.dirty:
             if tenant_model and isinstance(instance, tenant_model):
-                if instance.id in processed_tenants:
-                    continue
                 history = attributes.get_history(instance, 'name')
                 if history.has_changes():
-                    processed_tenants.add(instance.id)
+                    new_name = instance.name
+                    if new_name in session._already_renamed:
+                        session._already_renamed.remove(new_name)
 
         for instance in session.deleted:
             if tenant_model and isinstance(instance, tenant_model):
