@@ -1,10 +1,8 @@
 from werkzeug.wrappers import Request
 from werkzeug.exceptions import abort
 from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy.sql import text
 from flask import g, request, Blueprint
 import logging
-import flask_tenants.utils as utils
 
 logger = logging.getLogger(__name__)
 
