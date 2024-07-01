@@ -4,6 +4,8 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 from flask import g, request, Blueprint
 import logging
 
+from .context import clear_schema_renamed
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TENANT_URL_PREFIX = '/StrangeWomenLyingInPondsDistributingSwordsIsNoBasisForASystemOfGovernment'
@@ -54,6 +56,7 @@ class MultiTenancyMiddleware:
                 abort(404, description="Tenant deactivated")
 
     def _teardown_request_func(self, exception=None):
+        clear_schema_renamed()
         g.db_session.close()
 
     def create_tenant_blueprint(self, name):
