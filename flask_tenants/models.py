@@ -18,3 +18,8 @@ class BaseDomain(db.Model):
     tenant_name = db.Column(db.String(128), db.ForeignKey('tenants.name'), nullable=False)
     domain_name = db.Column(db.String(255), unique=True, nullable=False)
     is_primary = db.Column(db.Boolean, default=False, nullable=False)
+
+
+class BaseTenantModel(db.Model):
+    __abstract__ = True
+    __table_args__ = ({'schema': 'tenant'})

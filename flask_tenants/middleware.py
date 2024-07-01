@@ -45,6 +45,7 @@ class MultiTenancyMiddleware:
     def _before_request_func(self):
         g.db_session = scoped_session(sessionmaker(bind=self.db.engine))()
         g.tenant = request.headers.get('X-TENANT', self.default_schema)
+        g.tenant_scoped = g.tenant != self.default_schema
         if g.tenant != self.default_schema:
             tenant_object = g.db_session.query(self.db.Model.Tenant).filter_by(name=g.tenant).first()
             if tenant_object is None:
@@ -54,30 +55,8 @@ class MultiTenancyMiddleware:
             if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
                 abort(404, description="Tenant deactivated")
 
-            self._switch_tenant_schema(g.tenant)
-
     def _teardown_request_func(self, exception=None):
-        self._reset_schema()
-
-    def _switch_tenant_schema(self, tenant):
-        try:
-            g.db_session.execute(text('SET search_path TO :schema, public'), {'schema': tenant})
-            g.db_session.commit()
-        except Exception as e:
-            g.db_session.rollback()
-            logger.error(f"Tenant schema switch failed: {e}")
-            abort(500, description="Tenant schema switch failed")
-
-    def _reset_schema(self):
-        try:
-            g.db_session.execute(text('SET search_path TO public'))
-            g.db_session.commit()
-        except Exception as e:
-            g.db_session.rollback()
-            logger.error(f"Schema reset failed: {e}")
-            abort(500, description="Schema reset failed")
-        finally:
-            g.db_session.close()
+        g.db_session.close()
 
     def create_tenant_blueprint(self, name):
         return Blueprint(name, __name__, url_prefix=self.tenant_url_prefix)
