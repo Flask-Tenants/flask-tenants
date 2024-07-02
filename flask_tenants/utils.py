@@ -1,5 +1,4 @@
 import logging
-from contextlib import contextmanager
 from sqlalchemy import event
 from sqlalchemy.orm import scoped_session, sessionmaker, Session, attributes
 from sqlalchemy.sql import text
@@ -7,20 +6,6 @@ from .models import db
 from flask import g
 
 logging.basicConfig(level=logging.DEBUG)
-
-
-@contextmanager
-def with_db(database=db):
-    if g.tenant_scoped:
-        schema_translate_map = dict(tenant=g.tenant)
-    else:
-        schema_translate_map = None
-    connectable = database.engine.execution_options(schema_translate_map=schema_translate_map)
-    session = Session(autocommit=False, autoflush=False, bind=connectable)
-    try:
-        yield session
-    finally:
-        session.close()
 
 
 def create_schema(schema_name):
@@ -36,38 +21,38 @@ def create_schema(schema_name):
 
 
 def create_tables(schema_name):
-    with with_db(database=db) as session:
-        try:
-            session.execute(text(f'SET search_path TO "{schema_name}", public'))
-            metadata = db.Model.metadata
+    session = scoped_session(sessionmaker(bind=db.engine))()
+    try:
+        session.execute(text(f'SET search_path TO "{schema_name}", public'))
+        metadata = db.Model.metadata
 
-            tables_to_create = []
-            for table in metadata.tables.values():
-                if table.info.get('tenant_specific'):
-                    table.schema = schema_name
-                    tables_to_create.append(table)
+        tables_to_create = []
+        for table in metadata.tables.values():
+            if table.info.get('tenant_specific'):
+                table.schema = schema_name
+                tables_to_create.append(table)
 
-            metadata.create_all(bind=session.bind, tables=tables_to_create)
-        except Exception as e:
-            session.rollback()
-            raise RuntimeError(f"Failed to create tables: {e}")
-        finally:
-            session.close()
+        metadata.create_all(bind=session.bind, tables=tables_to_create)
+    except Exception as e:
+        session.rollback()
+        raise RuntimeError(f"Failed to create tables: {e}")
+    finally:
+        session.close()
 
 
 def create_public_tables():
-    with with_db(database=db) as session:
-        try:
-            session.execute(text('SET search_path TO public'))
-            db.Model.metadata.create_all(bind=session.bind, tables=[
-                db.Model.metadata.tables['tenants'],
-                db.Model.metadata.tables['domains']
-            ])
-        except Exception as e:
-            session.rollback()
-            raise RuntimeError(f"Failed to create public tables: {e}")
-        finally:
-            session.close()
+    session = scoped_session(sessionmaker(bind=db.engine))()
+    try:
+        session.execute(text('SET search_path TO public'))
+        db.Model.metadata.create_all(bind=session.bind, tables=[
+            db.Model.metadata.tables['tenants'],
+            db.Model.metadata.tables['domains']
+        ])
+    except Exception as e:
+        session.rollback()
+        raise RuntimeError(f"Failed to create public tables: {e}")
+    finally:
+        session.close()
 
 
 def create_schema_and_tables(schema_name):
@@ -121,7 +106,7 @@ def register_event_listeners():
                 history = attributes.get_history(instance, 'name')
                 if history.has_changes():
                     old_name = history.deleted[0]
-                    new_name = instance.name
+                    new_name = history.added[0]
                     if old_name != new_name and old_name not in session._already_renamed:
                         try:
                             rename_schema_and_update_tables(old_name, new_name)
@@ -138,7 +123,7 @@ def register_event_listeners():
             if tenant_model and isinstance(instance, tenant_model):
                 history = attributes.get_history(instance, 'name')
                 if history.has_changes():
-                    new_name = instance.name
+                    new_name = history.added[0]
                     if new_name in session._already_renamed:
                         session._already_renamed.remove(new_name)
 
@@ -148,4 +133,13 @@ def register_event_listeners():
                 drop_schema(schema_name)
 
 
-register_event_listeners()
+def register_engine_event_listeners(engine):
+    @event.listens_for(engine, 'before_cursor_execute')
+    def set_search_path(conn, cursor, statement, parameters, context, executemany):
+        if hasattr(g, 'tenant_scoped') and g.tenant_scoped:
+            schema = g.tenant
+            cursor.execute(f'SET search_path TO {schema}, public')
+            logging.debug(f"Set search_path to {schema}")
+        else:
+            cursor.execute('SET search_path TO public')
+            logging.debug("Set search_path to public")
