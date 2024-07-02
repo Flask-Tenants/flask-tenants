@@ -153,13 +153,12 @@ class BaseTenantModel(db.Model):
 
 ## Implementing CRUD Operations
 
-The `with_db()` utility must be used for all tenant-scoped database accesses for search_path schema to automatically apply.
+The `g.db_session` object must be used for all database accesses for search_path schema to automatically apply.
 
 ```python
-from flask_tenants.utils import with_db
+from flask import g
 
-with with_db() as session:
-    tank = session.query(Tank).filter_by(id=tank_id).first()
+tanks = g.db_session.query(Tank).all()
 ```
 
 ### Sample app.py
