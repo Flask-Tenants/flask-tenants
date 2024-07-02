@@ -1,7 +1,7 @@
 from werkzeug.wrappers import Request
 from werkzeug.exceptions import abort
 from sqlalchemy.orm import scoped_session, sessionmaker
-from flask import g, request, Blueprint
+from flask import g, request, Blueprint, current_app
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,10 @@ class MultiTenancyMiddleware:
         app.teardown_request(self._teardown_request_func)
 
     def _before_request_func(self):
-        g.db_session = scoped_session(sessionmaker(bind=self.db.engine))()
+        if not hasattr(current_app, 'db_session'):
+            current_app.db_session = scoped_session(sessionmaker(bind=self.db.engine))
+
+        g.db_session = current_app.db_session()
         g.tenant = request.headers.get('X-TENANT', self.default_schema)
         g.tenant_scoped = g.tenant != self.default_schema
         if g.tenant != self.default_schema:
@@ -54,7 +57,8 @@ class MultiTenancyMiddleware:
                 abort(404, description="Tenant deactivated")
 
     def _teardown_request_func(self, exception=None):
-        g.db_session.close()
+        if hasattr(g, 'db_session'):
+            current_app.db_session.remove()
 
     def create_tenant_blueprint(self, name):
         return Blueprint(name, __name__, url_prefix=self.tenant_url_prefix)
