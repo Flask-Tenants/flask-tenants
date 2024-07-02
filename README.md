@@ -108,16 +108,6 @@ class BaseDomain(db.Model):
     is_primary = db.Column(db.Boolean, default=False, nullable=False)
 ```
 
-#### BaseTenantModel
-
-`BaseTenantModel` provides no attributes.
-
-```python
-class BaseTenantModel(db.Model):
-    __abstract__ = True
-    __table_args__ = ({'schema': 'tenant'})
-```
-
 #### Tenant Deactivation
 If you'd like to be able to deactivate a tenant without deleting it, 
 for example if a SaaS customer forgets to pay their bill, you can optionally
@@ -149,6 +139,16 @@ class Tank(BaseTenantModel):
     name = db.Column(db.String(128), nullable=True)
     capacity = db.Column(db.Float, nullable=True)
     location = db.Column(db.String(255), nullable=True)
+```
+
+#### BaseTenantModel
+
+`BaseTenantModel` provides no attributes.
+
+```python
+class BaseTenantModel(db.Model):
+    __abstract__ = True
+    __table_args__ = ({'schema': 'tenant'})
 ```
 
 ## Implementing CRUD Operations
