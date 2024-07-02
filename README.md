@@ -4,10 +4,33 @@ Flask Tenants is a Flask extension for multi-tenancy support using subdomains an
 
 ## Installation
 
-Install using pip:
+Install Flask Tenants using pip:
 
 ```bash
 pip install flask-tenants
+```
+
+## Database Preparation
+
+Before using Flask-Tenants, you need to prepare your PostgreSQL database to support multiple schemas.
+
+1. Create a new PostgreSQL database (if not already created):
+
+```sql
+CREATE DATABASE flask_tenants;
+```
+
+2. Connect to the database and create the public schema and extension for UUID generation:
+
+```sql
+\c flask_tenants
+CREATE SCHEMA IF NOT EXISTS public;
+```
+
+3. Ensure your database user has the necessary privileges to create schemas:
+
+```sql
+GRANT ALL PRIVILEGES ON DATABASE "flask_tenants" to your_user;
 ```
 
 ## Usage
@@ -15,7 +38,7 @@ pip install flask-tenants
 ### Basic Setup
 
 1. Create a Flask application and initialize SQLAlchemy.
-2. Set up the multitenancy middleware.
+2. Set up the multi-tenancy middleware.
 
 ```python
 from flask import Flask
@@ -46,6 +69,22 @@ class Domain(BaseDomain):
     __tablename__ = 'domains'
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), nullable=False)
 ```
+
+#### Tenant Deactivation
+If you'd like to be able to deactivate a tenant without deleting it, 
+for example if a SaaS customer forgets to pay their bill, you can optionally
+add a `deactivated` field to your tenant model:
+
+```python
+class Tenant(BaseTenant):
+    __tablename__ = 'tenants'
+    # ...
+    deactivated = db.Column(db.Boolean(), nullable=False, default=False)
+```
+
+Flask-Tenants will check if this field exists early in the request lifecycle and abort 
+the request early with a 404 if it is `True`.
+
 
 ### Initialization
 
@@ -82,70 +121,100 @@ app.register_blueprint(public_bp)
 app.register_blueprint(tenant_bp)
 ```
 
-## Tenant Management
+## Implementing CRUD Operations
 
-The `flask_tenants.utils` module provides several functions to manage tenants:
+You need to implement your own CRUD operations for managing tenants. Below are examples of how to create, retrieve, update, and delete tenants. The Flask-Tenants extension uses SQLAlchemy hooks to handle schema management automatically when these operations are performed.
 
-- `create_tenant`: Create a new tenant
-- `delete_tenant`: Delete an existing tenant
-- `get_tenant`: Fetch details of a specific tenant
-- `get_all_tenants`: Fetch details of all tenants
-- `update_tenant`: Update details of an existing tenant
+### Note:
+`g.db_session` object must be used for all tenant-scoped database accesses for search_path 
+schema to automatically apply:
+
+```python
+from flask import g
+
+g.db_session.query(YourTenantScopedModel).all()
+```
 
 ## Examples
 
 ### Create a Tenant
 
 ```python
-from flask_tenants.utils import create_tenant
+from flask import request, jsonify
+from test_app.models import Tenant, Domain
+from test_app import db
 
-new_tenant = create_tenant({
-    "name": "tenant_name",
-    "domain_name": "tenant_name.local.test",
-    "phone_number": "123-456-7890",
-    "address": "123 Example St"
-})
-print(new_tenant)
+
+@app.route('/create_tenant', methods=['POST'])
+def create_tenant():
+    data = request.json
+    if not data:
+        return jsonify({'error': 'Invalid input data'}), 400
+
+    tenant = Tenant(
+        name=data['name'],
+        phone_number=data['phone_number'],
+        address=data['address']
+    )
+    db.db_session.add(tenant)
+    db.db_session.flush()  # Flush to get the tenant ID
+
+    domain = Domain(
+        domain_name=data['domain_name'],
+        tenant_id=tenant.id,
+        is_primary=True
+    )
+    db.db_session.add(domain)
+    db.db_session.commit()
+
+    return jsonify({'message': 'Tenant created successfully', 'tenant': tenant.to_dict()}), 201
 ```
 
-### Delete a Tenant
+### Retrieve a Tenant
 
 ```python
-from flask_tenants.utils import delete_tenant
-
-success = delete_tenant(tenant_id)
-print(success)
-```
-
-### Get a Tenant
-
-```python
-from flask_tenants.utils import get_tenant
-
-tenant = get_tenant(tenant_id)
-print(tenant)
-```
-
-### Get All Tenants
-
-```python
-from flask_tenants.utils import get_all_tenants
-
-tenants = get_all_tenants()
-print(tenants)
+@app.route('/get_tenant/<int:tenant_id>', methods=['GET'])
+def get_tenant(tenant_id):
+    tenant = Tenant.query.get(tenant_id)
+    if not tenant:
+        return jsonify({'error': 'Tenant not found'}), 404
+    return jsonify(tenant.to_dict()), 200
 ```
 
 ### Update a Tenant
 
 ```python
-from flask_tenants.utils import update_tenant
+@app.route('/update_tenant/<int:tenant_id>', methods=['PUT'])
+def update_tenant(tenant_id):
+    data = request.json
+    if not data:
+        return jsonify({'error': 'Invalid input data'}), 400
 
-updated_tenant = update_tenant(tenant_id, {
-    "name": "new_tenant_name",
-    "phone_number": "987-654-3210",
-    "address": "456 Updated St"
-})
-print(updated_tenant)
+    tenant = Tenant.query.get(tenant_id)
+    if not tenant:
+        return jsonify({'error': 'Tenant not found'}), 404
+
+    tenant.name = data['name']
+    tenant.phone_number = data['phone_number']
+    tenant.address = data['address']
+    db.db_session.commit()
+
+    return jsonify({'message': 'Tenant updated successfully', 'tenant': tenant.to_dict()}), 200
+```
+
+### Delete a Tenant
+
+```python
+@app.route('/delete_tenant/<int:tenant_id>', methods=['DELETE'])
+def delete_tenant(tenant_id):
+    tenant = Tenant.query.get(tenant_id)
+    if not tenant:
+        return jsonify({'error': 'Tenant not found'}), 404
+
+    db.db_session.delete(tenant)
+    db.db_session.commit()
+
+    return jsonify({'message': 'Tenant deleted successfully'}), 200
 ```
 
 ## Full Example
@@ -158,13 +227,13 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 import os
-from flask_tenants import init_app as tenants_init_app, create_tenancy, create_tenant, get_tenant, update_tenant, delete_tenant, db
-from myapp.models import Tenant, Domain
+from flask_tenants import init_app as tenants_init_app, create_tenancy, db
+from test_app.models import Tenant, Domain
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 app = Flask(__name__)
-app.config.from_object('myapp.config.DefaultConfig')
+app.config.from_object('test_app.config.DefaultConfig')
 
 # Initialize Flask-Tenants with custom models
 tenants_init_app(app, tenant_model=Tenant, domain_model=Domain)
@@ -179,44 +248,61 @@ tenancy = create_tenancy(app, db, tenant_url_prefix='/_tenant')
 public_bp = tenancy.create_public_blueprint('public')
 tenant_bp = tenancy.create_tenant_blueprint('tenant')
 
-# Define routes for public blueprint
+
 @public_bp.route('/')
 def public_index():
     return 'Welcome to the public index page!'
 
-# Define routes for tenant blueprint
-@tenant_bp.route('/test')
-def tenant_test():
+
+@tenant_bp.route('/')
+def tenant_index():
     tenant = g.tenant if hasattr(g, 'tenant') else 'unknown'
     return f'Welcome to the tenant index page for {tenant}!'
 
-# Demonstration of utility functions
+
+# Example CRUD Routes
 @public_bp.route('/create_tenant', methods=['POST'])
 def create_tenant_route():
     data = request.json
     if not data:
         return jsonify({"error": "Invalid input data"}), 400
 
-    try:
-        tenant = create_tenant(data)
-        return jsonify({"message": f"Tenant {tenant.name} created successfully", "tenant": {
-            "id": tenant.id,
-            "name": tenant.name,
-            "phone_number": tenant.phone_number,
-            "address": tenant.address
-        }}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    tenant_data = {k: v for k, v in data.items() if k in Tenant.__table__.columns.keys()}
+    domain_name = data.get('domain_name')
+    if not domain_name:
+        return jsonify({"error": "domain_name is required"}), 400
+
+    tenant = Tenant(**tenant_data)
+    db.db_session.add(tenant)
+    db.db_session.flush()  # Flush to get the tenant ID
+
+    domain = Domain(domain_name=domain_name, tenant_id=tenant.id, is_primary=True)
+    db.db_session.add(domain)
+    db.db_session.commit()
+
+    return jsonify({"message": f"Tenant {tenant.name} created successfully", "tenant": {
+        "id": tenant.id,
+        "name": tenant.name,
+        "phone_number": tenant.phone_number,
+        "address": tenant.address
+    }}), 201
+
 
 @public_bp.route('/get_tenant/<int:tenant_id>', methods=['GET'])
 def get_tenant_route(tenant_id):
     try:
-        tenant = get_tenant(tenant_id)
+        tenant = Tenant.query.get(tenant_id)
         if not tenant:
             return jsonify({"error": "Tenant not found"}), 404
-        return jsonify({"id": tenant.id, "name": tenant.name, "phone_number": tenant.phone_number, "address": tenant.address}), 200
+        return jsonify({
+            "id": tenant.id,
+            "name": tenant.name,
+            "phone_number": tenant.phone_number,
+            "address": tenant.address
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @public_bp.route('/update_tenant/<int:tenant_id>', methods=['PUT'])
 def update_tenant_route(tenant_id):
@@ -225,7 +311,15 @@ def update_tenant_route(tenant_id):
         return jsonify({"error": "Invalid input data"}), 400
 
     try:
-        tenant = update_tenant(tenant_id, data)
+        tenant = Tenant.query.get(tenant_id)
+        if not tenant:
+            return jsonify({"error": "Tenant not found"}), 404
+
+        for key, value in data.items():
+            if key in Tenant.__table__.columns.keys():
+                setattr(tenant, key, value)
+
+        db.db_session.commit()
         return jsonify({
             "message": f"Tenant {tenant.name} updated successfully",
             "tenant": {
@@ -238,20 +332,21 @@ def update_tenant_route(tenant_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @public_bp.route('/delete_tenant/<int:tenant_id>', methods=['DELETE'])
 def delete_tenant_route(tenant_id):
     try:
-        success = delete_tenant(tenant_id)
-        if success:
-            return jsonify({"message": "Tenant deleted successfully"}), 200
-        else:
+        tenant = Tenant.query.get(tenant_id)
+        if not tenant:
             return jsonify({"error": "Tenant not found"}), 404
+
+        db.db_session.delete(tenant)
+        db.db_session.commit()
+        return jsonify({"message": "Tenant deleted successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-
-# Register blueprints
 app.register_blueprint(public_bp)
 app.register_blueprint(tenant_bp)
 
@@ -259,9 +354,9 @@ if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
 ```
 
-### Configuration
+## Configuration
 
-### `config.py`
+### config.py
 
 ```python
 class DefaultConfig:
@@ -269,9 +364,7 @@ class DefaultConfig:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 ```
 
-### Models
-
-### `models.py`
+### models.py
 
 ```python
 from flask_tenants import BaseTenant, BaseDomain, db
@@ -289,9 +382,7 @@ class Domain(BaseDomain):
         return f'<Domain {self.domain_name} (Primary: {self.is_primary})>'
 ```
 
-### Running the Application
-
-### `run.py`
+### run.py
 
 ```python
 from myapp.app import app
@@ -300,9 +391,7 @@ if __name__ == '__main__':
     app.run(debug=True)
 ```
 
-### Testing the Application
-
-### `test-web.py`
+### test-web.py
 
 ```python
 import requests
@@ -328,7 +417,7 @@ def create_tenant(tenant):
     try:
         response = requests.post(f"{BASE_URL}/create_tenant", json=tenant)
         response.raise_for_status()
-        tenant_data = response.json().get('tenant')  # Ensure 'tenant' key exists in response
+        tenant_data = response.json().get('tenant')
         if tenant_data:
             print(f"Created Tenant: ID={tenant_data['id']}, Name={tenant_data['name']}, "
                   f"Phone={tenant_data['phone_number']}, Address={tenant_data['address']}")
@@ -356,7 +445,7 @@ def update_tenant(tenant_id, update_fields):
         response = requests.put(f"{BASE_URL}/update_tenant/{tenant_id}", json=update_fields)
         response.raise_for_status()
         response_data = response.json()
-        tenant_data = response_data.get('tenant')  # Ensure 'tenant' key exists in response
+        tenant_data = response_data.get('tenant')
         if tenant_data:
             print(f"Updated Tenant: ID={tenant_data['id']}, Name={tenant_data['name']}, "
                   f"Phone={tenant_data['phone_number']}, Address={tenant_data['address']}")
@@ -377,22 +466,18 @@ def delete_tenant(tenant_id):
         print(f"Error deleting tenant with ID {tenant_id}: {e}")
 
 if __name__ == "__main__":
-    # Generate random tenants
     tenants = [generate_random_tenant(), generate_random_tenant()]
 
     created_tenants = []
 
-    # Create tenants
     for tenant in tenants:
         created_tenant = create_tenant(tenant)
         if created_tenant:
             created_tenants.append(created_tenant)
 
-    # Read tenants
     for tenant in created_tenants:
         get_tenant(tenant['id'])
 
-    # Update tenants
     updated_tenants = []
     for tenant in created_tenants:
         new_name = f"{tenant['name']}_updated"
@@ -407,7 +492,6 @@ if __name__ == "__main__":
         if updated_tenant:
             updated_tenants.append(updated_tenant)
 
-    # Delete tenants
     for tenant in updated_tenants:
         delete_tenant(tenant['id'])
 ```
@@ -423,3 +507,4 @@ FLASK_DEBUG=true
 FLASK_RUN_HOST=0.0.0.0
 FLASK_RUN_PORT=5000
 ```
+

@@ -1,132 +1,144 @@
-from flask_tenants.models import db
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from sqlalchemy import text
+import logging
+from contextlib import contextmanager
+from sqlalchemy import event
+from sqlalchemy.orm import scoped_session, sessionmaker, Session, attributes
+from sqlalchemy.sql import text
+from .models import db
+from flask import g
+
+from .context import set_schema_renamed, is_schema_renamed
+
+logging.basicConfig(level=logging.DEBUG)
 
 
-def create_tenant(fields, **kwargs):
+@contextmanager
+def with_db(database=db):
+    if g.tenant_scoped:
+        schema_translate_map = dict(tenant=g.tenant)
+    else:
+        schema_translate_map = None
+    connectable = database.engine.execution_options(schema_translate_map=schema_translate_map)
+    session = Session(autocommit=False, autoflush=False, bind=connectable)
     try:
-        tenant_model = getattr(db.Model, 'Tenant', None)
-        domain_model = getattr(db.Model, 'Domain', None)
-
-        if not tenant_model or not domain_model:
-            raise RuntimeError("Tenant or Domain model not found")
-
-        tenant_name = fields.get('name')
-        domain_name = fields.get('domain_name')
-
-        if not tenant_name or not domain_name:
-            raise ValueError("Both tenant_name and domain_name are required")
-
-        # Delete existing tenant and domain if they exist
-        existing_tenant = tenant_model.query.filter_by(name=tenant_name).first()
-        if existing_tenant:
-            delete_tenant(existing_tenant.id)
-
-        existing_domain = domain_model.query.filter_by(domain_name=domain_name).first()
-        if existing_domain:
-            db.session.delete(existing_domain)
-            db.session.commit()
-
-        tenant_fields = {k: v for k, v in fields.items() if k != 'domain_name'}
-        tenant_fields.update(kwargs)
-        tenant = tenant_model(**tenant_fields)
-        db.session.add(tenant)
-        db.session.flush()  # Ensure tenant ID is generated
-
-        # Create the schema for the tenant using the tenant name
-        schema_name = tenant_name
-        # Check if the schema already exists
-        schema_exists = db.session.execute(
-            text(f"SELECT schema_name FROM information_schema.schemata WHERE schema_name = '{schema_name}'")).scalar()
-        if schema_exists:
-            raise RuntimeError(f"Schema '{schema_name}' already exists")
-
-        db.session.execute(text(f'CREATE SCHEMA "{schema_name}"'))
-
-        domain = domain_model(domain_name=domain_name, is_primary=True, tenant_id=tenant.id)
-        db.session.add(domain)
-        db.session.commit()
-
-        return tenant
-    except IntegrityError as e:
-        db.session.rollback()
-        raise RuntimeError(f"Failed to create tenant due to integrity error: {e}")
-    except SQLAlchemyError as e:
-        db.session.rollback()
-        raise RuntimeError(f"Failed to create tenant: {e}")
+        yield session
+    finally:
+        session.close()
 
 
-def get_tenant(tenant_id):
-    tenant_model = getattr(db.Model, 'Tenant', None)
-    if not tenant_model:
-        raise RuntimeError("Tenant model not found")
-    return tenant_model.query.get(tenant_id)
+def create_schema(schema_name):
+    session = scoped_session(sessionmaker(bind=db.engine))()
+    try:
+        session.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise RuntimeError(f"Failed to create schema: {e}")
+    finally:
+        session.close()
 
 
-def update_tenant(tenant_id, update_fields, **kwargs):
-    tenant_model = getattr(db.Model, 'Tenant', None)
-    if not tenant_model:
-        raise RuntimeError("Tenant model not found")
-
-    tenant = tenant_model.query.get(tenant_id)
-    if tenant:
+def create_tables(schema_name):
+    with with_db(database=db) as session:
         try:
-            if 'name' in update_fields:
-                new_name = update_fields['name']
-                # Check if the new schema name already exists
-                schema_exists = (db.session.execute(
-                    text(f"SELECT schema_name FROM information_schema.schemata WHERE schema_name = '{new_name}'"))
-                                 .scalar())
-                if schema_exists:
-                    raise RuntimeError(f"Schema '{new_name}' already exists")
+            session.execute(text(f'SET search_path TO "{schema_name}", public'))
+            metadata = db.Model.metadata
 
-                # Rename the schema
-                old_name = tenant.name
-                db.session.execute(text(f'ALTER SCHEMA "{old_name}" RENAME TO "{new_name}"'))
-                tenant.name = new_name
+            tables_to_create = []
+            for table in metadata.tables.values():
+                if table.info.get('tenant_specific'):
+                    table.schema = schema_name
+                    tables_to_create.append(table)
 
-            for key, value in {**update_fields, **kwargs}.items():
-                if key != 'name':
-                    setattr(tenant, key, value)
-
-            db.session.commit()
-            # Refresh tenant object to get updated data
-            db.session.refresh(tenant)
-
-            return tenant
-
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            raise RuntimeError(f"Failed to update tenant: {e}")
-
-    raise ValueError(f"Tenant with ID={tenant_id} not found")
+            metadata.create_all(bind=session.bind, tables=tables_to_create)
+        except Exception as e:
+            session.rollback()
+            raise RuntimeError(f"Failed to create tables: {e}")
+        finally:
+            session.close()
 
 
-def delete_tenant(tenant_id):
+def create_public_tables():
+    with with_db(database=db) as session:
+        try:
+            session.execute(text('SET search_path TO public'))
+            db.Model.metadata.create_all(bind=session.bind, tables=[
+                db.Model.metadata.tables['tenants'],
+                db.Model.metadata.tables['domains']
+            ])
+        except Exception as e:
+            session.rollback()
+            raise RuntimeError(f"Failed to create public tables: {e}")
+        finally:
+            session.close()
+
+
+def create_schema_and_tables(schema_name):
     try:
+        create_schema(schema_name)
+        create_public_tables()
+        create_tables(schema_name)
+    except RuntimeError as e:
+        raise
+
+
+def rename_schema_and_update_tables(old_name, new_name):
+    session = scoped_session(sessionmaker(bind=db.engine))()
+    try:
+        session.execute(text(f'ALTER SCHEMA "{old_name}" RENAME TO "{new_name}"'))
+        session.execute(text(f'UPDATE tenants SET name = :new_name WHERE name = :old_name').bindparams(
+            new_name=new_name, old_name=old_name))
+        session.execute(text(f'UPDATE domains SET tenant_name = :new_name WHERE tenant_name = :old_name').bindparams(
+            new_name=new_name, old_name=old_name))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise RuntimeError(f"Failed to rename schema and update tables: {e}")
+    finally:
+        session.close()
+
+
+def drop_schema(schema_name):
+    session = scoped_session(sessionmaker(bind=db.engine))()
+    try:
+        session.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+    finally:
+        session.close()
+
+
+def register_event_listeners():
+    @event.listens_for(Session, 'before_flush')
+    def before_flush(session, flush_context, instances):
         tenant_model = getattr(db.Model, 'Tenant', None)
-        domain_model = getattr(db.Model, 'Domain', None)
-        if not tenant_model or not domain_model:
-            raise RuntimeError("Tenant or Domain model not found")
 
-        tenant = tenant_model.query.get(tenant_id)
-        if tenant:
-            schema_name = tenant.name
+        for instance in session.new:
+            if tenant_model and isinstance(instance, tenant_model):
+                create_schema_and_tables(instance.name)
 
-            # Delete associated domains first
-            domain_model.query.filter_by(tenant_id=tenant.id).delete()
-            db.session.commit()
+        for instance in session.dirty:
+            if tenant_model and isinstance(instance, tenant_model):
+                history = attributes.get_history(instance, 'name')
+                if history.has_changes():
+                    old_name = history.deleted[0]
+                    new_name = instance.name
+                    if old_name != new_name and not is_schema_renamed():
+                        try:
+                            rename_schema_and_update_tables(old_name, new_name)
+                            set_schema_renamed()
+                        except RuntimeError as e:
+                            logging.error(f"Error renaming schema before flush: {e}")
+                            raise
 
-            # Delete tenant
-            db.session.delete(tenant)
-            db.session.commit()
+    @event.listens_for(Session, 'after_flush')
+    def after_flush(session, flush_context):
+        tenant_model = getattr(db.Model, 'Tenant', None)
 
-            # Drop the schema
-            db.session.execute(text(f'DROP SCHEMA "{schema_name}" CASCADE'))
-            db.session.commit()
+        for instance in session.deleted:
+            if tenant_model and isinstance(instance, tenant_model):
+                schema_name = instance.name
+                drop_schema(schema_name)
 
-            return True
-        return False
-    except SQLAlchemyError as e:
-        db.session.rollback()
-        raise RuntimeError(f"Failed to delete tenant: {e}")
+
+register_event_listeners()

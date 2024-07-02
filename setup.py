@@ -2,8 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name='flask-tenants',
-    version='0.3.4',
-    author='Cory Cline',
+    version='0.4.1',
+    author='Cory Cline, Gabe Rust',
     author_email='cory@corycline.com',
     description='A Flask extension for multi-tenancy support',
     long_description=open('README.md').read(),
@@ -14,7 +14,7 @@ setup(
     install_requires=[
         'Flask>=1.1.2',
         'SQLAlchemy>=1.3.23',
-        'psycopg2==2.9.9',
+        'psycopg2-binary==2.9.9',
         'Flask-SQLAlchemy==3.1.1',
     ],
     classifiers=[
