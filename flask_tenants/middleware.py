@@ -1,10 +1,8 @@
 from werkzeug.wrappers import Request
 from werkzeug.exceptions import abort
 from sqlalchemy.orm import scoped_session, sessionmaker
-from flask import g, request, Blueprint, jsonify
+from flask import g, request, Blueprint
 import logging
-
-from .context import clear_schema_renamed
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +35,7 @@ class MultiTenancyMiddleware:
         self.tenant_url_prefix = tenant_url_prefix
 
         if self.db is None:
-            raise ValueError('Database instance must be provided')
+            raise ValueError("Database instance must be provided")
 
         app.before_request(self._before_request_func)
         app.teardown_request(self._teardown_request_func)
@@ -49,14 +47,13 @@ class MultiTenancyMiddleware:
         if g.tenant != self.default_schema:
             tenant_object = g.db_session.query(self.db.Model.Tenant).filter_by(name=g.tenant).first()
             if tenant_object is None:
-                logger.debug(f'Tenant \'{g.tenant}\' not found.')
-                abort(jsonify(message='Tenant not found'), 404)
+                logger.debug(f"Tenant '{g.tenant}' not found.")
+                abort(404, description="Tenant not found")
 
             if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
-                abort(jsonify(message='Tenant deactivated'), 404)
+                abort(404, description="Tenant deactivated")
 
     def _teardown_request_func(self, exception=None):
-        clear_schema_renamed()
         g.db_session.close()
 
     def create_tenant_blueprint(self, name):
