@@ -213,49 +213,6 @@ from flask import g
 tanks = g.db_session.query(Tank).all()
 ```
 
-### Sample app.py
-
-```python
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from dotenv import load_dotenv
-import os
-from flask_tenants import init_app as tenants_init_app, create_tenancy, db
-from public.models import Tenant, Domain
-from public.routes import public_bp
-from tenants.routes import tenant_bp
-from tanks.routes import tank_bp
-
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
-
-app = Flask(__name__)
-app.config.from_object('config.Config')
-
-# Initialize Flask-Tenants with custom models
-tenants_init_app(app, tenant_model=Tenant, domain_model=Domain)
-
-# Initialize Flask-Migrate
-migrate = Migrate(app, db)
-
-# Set up tenancy middleware
-tenancy = create_tenancy(app, db, tenant_url_prefix='/_tenant')
-
-# Create blueprints
-root_public_bp = tenancy.create_public_blueprint('public')
-root_tenant_bp = tenancy.create_tenant_blueprint('tenant')
-root_tank_bp = tenancy.create_tenant_blueprint('tank')
-
-root_public_bp.register_blueprint(public_bp)
-root_tenant_bp.register_blueprint(tenant_bp)
-root_tank_bp.register_blueprint(tank_bp)
-
-app.register_blueprint(root_public_bp)
-app.register_blueprint(root_tenant_bp)
-app.register_blueprint(root_tank_bp)
-
-if __name__ == '__main__':
-    app.run(debug=True)
-```
-
+### Example and Demos
+You can find an example multi-tenant blog application at [this repo](https://github.com/Flask-Tenants/demo_app)
 
