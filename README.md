@@ -121,7 +121,59 @@ class Tenant(BaseTenant):
 ```
 
 Flask-Tenants will check if this field exists early in the request lifecycle and abort 
-the request early with a 404 if it is `True`.
+the request early with a `TenantActivationError` if it is `True`.
+
+### Error Handling
+
+Flask-Tenants middleware raises two custom exceptions that need to be handled by the end developer. Namely, `TenantActivationError` (if deactivated is utilized in Tenant model) and `TenantNotFoundError`. These can be handled in a custom errors.py file, as shown:
+
+```python
+from flask import jsonify
+from flask_tenants.exceptions import TenantNotFoundError, TenantActivationError
+
+
+def register_error_handlers(app):
+    @app.errorhandler(TenantNotFoundError)
+    def handle_tenant_not_found(error):
+        response = jsonify({
+            'error': 'TenantNotFoundError',
+            'message': 'The requested tenant was not found.'
+        })
+        response.status_code = 404
+        return response
+
+    @app.errorhandler(TenantActivationError)
+    def handle_tenant_activation_error(error):
+        response = jsonify({
+            'error': 'TenantActivationError',
+            'message': 'The requested tenant is deactivated.'
+        })
+        response.status_code = 403
+        return response
+```
+
+Additionally, in app.py:
+
+```python
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+
+    # Register error handlers
+    register_error_handlers(app)
+
+    tenants_init_app(app, tenant_model=Tenant, domain_model=Domain)
+    ...
+```
+
+Here is the full list of custom exceptions provided by the Flask-Tenants module:
+
+- SchemaCreationError
+- TableCreationError
+- SchemaRenameError
+- SchemaDropError
+- TenantActivationError
+- TenantNotFoundError
 
 ### Tenant scoped models
 

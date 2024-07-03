@@ -1,12 +1,12 @@
 from werkzeug.wrappers import Request
-from werkzeug.exceptions import abort
 from sqlalchemy.orm import scoped_session, sessionmaker
 from flask import g, request, Blueprint, current_app
 import logging
+from .exceptions import *
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TENANT_URL_PREFIX = '/StrangeWomenLyingInPondsDistributingSwordsIsNoBasisForASystemOfGovernment'
+DEFAULT_TENANT_URL_PREFIX = '/InTheBeginningWasTheWordAndTheWordWasWithGodAndTheWordWasGod'
 
 
 class URLRewriteMiddleware:
@@ -23,6 +23,7 @@ class URLRewriteMiddleware:
             subdomain = host.split('.')[0]
             environ['PATH_INFO'] = f'{self.tenant_url_prefix}{req.path}'
             environ['HTTP_X_TENANT'] = subdomain
+            logger.debug(f"Rewriting URL for tenant '{subdomain}' with path '{req.path}'")
 
         return self.app(environ, start_response)
 
@@ -51,10 +52,11 @@ class MultiTenancyMiddleware:
             tenant_object = g.db_session.query(self.db.Model.Tenant).filter_by(name=g.tenant).first()
             if tenant_object is None:
                 logger.debug(f"Tenant '{g.tenant}' not found.")
-                abort(404, description="Tenant not found")
+                raise TenantNotFoundError
 
             if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
-                abort(404, description="Tenant deactivated")
+                logger.debug(f"Tenant '{g.tenant}' is deactivated.")
+                raise TenantActivationError
 
     def _teardown_request_func(self, exception=None):
         if hasattr(g, 'db_session'):
