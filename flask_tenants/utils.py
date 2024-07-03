@@ -1,11 +1,12 @@
-import logging
+import logging as logger
 from sqlalchemy import event
 from sqlalchemy.orm import scoped_session, sessionmaker, Session, attributes
 from sqlalchemy.sql import text
 from .models import db
 from flask import g
+from .exceptions import *
 
-logging.basicConfig(level=logging.DEBUG)
+logger.basicConfig(level=logger.DEBUG)
 
 
 def create_schema(schema_name):
@@ -13,9 +14,11 @@ def create_schema(schema_name):
     try:
         session.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
         session.commit()
+        logger.info(f"Schema '{schema_name}' created successfully")
     except Exception as e:
         session.rollback()
-        raise RuntimeError(f"Failed to create schema: {e}")
+        logger.error(f"Failed to create schema '{schema_name}': {e}")
+        raise SchemaCreationError(f"Failed to create schema: {e}")
     finally:
         session.close()
 
@@ -33,9 +36,11 @@ def create_tables(schema_name):
                 tables_to_create.append(table)
 
         metadata.create_all(bind=session.bind, tables=tables_to_create)
+        logger.info(f"Tables created for schema '{schema_name}'")
     except Exception as e:
         session.rollback()
-        raise RuntimeError(f"Failed to create tables: {e}")
+        logger.error(f"Failed to create tables for schema '{schema_name}': {e}")
+        raise TableCreationError(f"Failed to create tables: {e}")
     finally:
         session.close()
 
@@ -48,9 +53,11 @@ def create_public_tables():
             db.Model.metadata.tables['tenants'],
             db.Model.metadata.tables['domains']
         ])
+        logger.info("Public tables created successfully")
     except Exception as e:
         session.rollback()
-        raise RuntimeError(f"Failed to create public tables: {e}")
+        logger.error(f"Failed to create public tables: {e}")
+        raise TableCreationError(f"Failed to create public tables: {e}")
     finally:
         session.close()
 
@@ -60,7 +67,11 @@ def create_schema_and_tables(schema_name):
         create_schema(schema_name)
         create_public_tables()
         create_tables(schema_name)
-    except RuntimeError as e:
+    except SchemaCreationError as e:
+        logger.error(f"Schema creation error for '{schema_name}': {e}")
+        raise
+    except TableCreationError as e:
+        logger.error(f"Table creation error for '{schema_name}': {e}")
         raise
 
 
@@ -73,9 +84,11 @@ def rename_schema_and_update_tables(old_name, new_name):
         session.execute(text(f'UPDATE domains SET tenant_name = :new_name WHERE tenant_name = :old_name').bindparams(
             new_name=new_name, old_name=old_name))
         session.commit()
+        logger.info(f"Schema renamed from '{old_name}' to '{new_name}' and updated tables")
     except Exception as e:
         session.rollback()
-        raise RuntimeError(f"Failed to rename schema and update tables: {e}")
+        logger.error(f"Failed to rename schema from '{old_name}' to '{new_name}': {e}")
+        raise SchemaRenameError(f"Failed to rename schema and update tables: {e}")
     finally:
         session.close()
 
@@ -85,8 +98,11 @@ def drop_schema(schema_name):
     try:
         session.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
         session.commit()
+        logger.info(f"Schema '{schema_name}' dropped successfully")
     except Exception as e:
         session.rollback()
+        logger.error(f"Failed to drop schema '{schema_name}': {e}")
+        raise SchemaDropError(f"Failed to drop schema: {e}")
     finally:
         session.close()
 
@@ -99,7 +115,11 @@ def register_event_listeners():
 
         for instance in session.new:
             if tenant_model and isinstance(instance, tenant_model):
-                create_schema_and_tables(instance.name)
+                try:
+                    create_schema_and_tables(instance.name)
+                except (SchemaCreationError, TableCreationError) as e:
+                    logger.error(f"Error creating schema and tables for new tenant '{instance.name}': {e}")
+                    raise
 
         for instance in session.dirty:
             if tenant_model and isinstance(instance, tenant_model):
@@ -111,8 +131,8 @@ def register_event_listeners():
                         try:
                             rename_schema_and_update_tables(old_name, new_name)
                             session._already_renamed.add(old_name)
-                        except RuntimeError as e:
-                            logging.error(f"Error renaming schema before flush: {e}")
+                        except SchemaRenameError as e:
+                            logger.error(f"Error renaming schema before flush: {e}")
                             raise
 
     @event.listens_for(Session, 'after_flush')
@@ -130,7 +150,11 @@ def register_event_listeners():
         for instance in session.deleted:
             if tenant_model and isinstance(instance, tenant_model):
                 schema_name = instance.name
-                drop_schema(schema_name)
+                try:
+                    drop_schema(schema_name)
+                except SchemaDropError as e:
+                    logger.error(f"Error dropping schema '{schema_name}': {e}")
+                    raise
 
 
 def register_engine_event_listeners(engine):
@@ -139,7 +163,7 @@ def register_engine_event_listeners(engine):
         if hasattr(g, 'tenant_scoped') and g.tenant_scoped:
             schema = g.tenant
             cursor.execute(f'SET search_path TO {schema}, public')
-            logging.debug(f"Set search_path to {schema}")
+            logger.debug(f"Set search_path to {schema}")
         else:
             cursor.execute('SET search_path TO public')
-            logging.debug("Set search_path to public")
+            logger.debug("Set search_path to public")
