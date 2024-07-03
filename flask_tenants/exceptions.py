@@ -20,3 +20,11 @@ class TenantActivationError(Exception):
 
 class TenantNotFoundError(Exception):
     pass
+
+
+class SchemaAlreadyExistsError(Exception):
+    pass
+
+
+class SchemaDoesNotExistError(Exception):
+    pass
