@@ -47,8 +47,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://user:password@localhost/db
 db = SQLAlchemy(app)
 
 # Initialize tenants app
-    flask_tenants = FlaskTenants(app, tenant_model=Tenant, domain_model=Domain, db=db, tenant_url_prefix='/_tenant')
-    flask_tenants.init()
+flask_tenants = FlaskTenants(app, tenant_model=Tenant, domain_model=Domain, db=db, tenant_url_prefix='/_tenant')
+flask_tenants.init()
 ```
 
 #### tenant_url_prefix
