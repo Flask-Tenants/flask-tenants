@@ -9,9 +9,23 @@ from .exceptions import *
 logger.basicConfig(level=logger.DEBUG)
 
 
+def schema_exists(schema_name):
+    session = scoped_session(sessionmaker(bind=db.engine))()
+    try:
+        result = session.execute(text(
+            "SELECT schema_name FROM information_schema.schemata WHERE schema_name = :schema_name"
+        ), {'schema_name': schema_name})
+        return result.scalar() is not None
+    finally:
+        session.close()
+
+
 def create_schema(schema_name):
     session = scoped_session(sessionmaker(bind=db.engine))()
     try:
+        if schema_exists(schema_name):
+            raise SchemaAlreadyExistsError(f"Schema '{schema_name}' already exists")
+
         session.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
         session.commit()
         logger.info(f"Schema '{schema_name}' created successfully")
@@ -78,6 +92,12 @@ def create_schema_and_tables(schema_name):
 def rename_schema_and_update_tables(old_name, new_name):
     session = scoped_session(sessionmaker(bind=db.engine))()
     try:
+        if not schema_exists(old_name):
+            raise SchemaDoesNotExistError(f"Schema '{old_name}' does not exist")
+
+        if schema_exists(new_name):
+            raise SchemaAlreadyExistsError(f"Schema '{new_name}' already exists")
+
         session.execute(text(f'ALTER SCHEMA "{old_name}" RENAME TO "{new_name}"'))
         session.execute(text(f'UPDATE tenants SET name = :new_name WHERE name = :old_name').bindparams(
             new_name=new_name, old_name=old_name))
@@ -96,6 +116,9 @@ def rename_schema_and_update_tables(old_name, new_name):
 def drop_schema(schema_name):
     session = scoped_session(sessionmaker(bind=db.engine))()
     try:
+        if not schema_exists(schema_name):
+            raise SchemaDoesNotExistError(f"Schema '{schema_name}' does not exist")
+
         session.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
         session.commit()
         logger.info(f"Schema '{schema_name}' dropped successfully")

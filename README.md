@@ -169,9 +169,11 @@ def create_app():
 Here is the full list of custom exceptions provided by the Flask-Tenants module:
 
 - SchemaCreationError
-- TableCreationError
+- SchemaAlreadyExistsError
+- SchemaDoesNotExistError
 - SchemaRenameError
 - SchemaDropError
+- TableCreationError
 - TenantActivationError
 - TenantNotFoundError
 
