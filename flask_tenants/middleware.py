@@ -1,5 +1,6 @@
 from werkzeug.wrappers import Request
 from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy.sql import text
 from flask import g, request, Blueprint, current_app
 import logging
 from .utils import register_event_listeners, register_engine_event_listeners
@@ -58,6 +59,8 @@ class MultiTenancyMiddleware:
             if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
                 logger.debug(f"Tenant '{g.tenant}' is deactivated.")
                 raise TenantActivationError
+            
+            g.db_session.execute(text(f"SET search_path TO {g.tenant}, public"))
 
     def _teardown_request_func(self, exception=None):
         if hasattr(g, 'db_session'):
