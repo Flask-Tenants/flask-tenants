@@ -2,6 +2,9 @@
 
 Flask Tenants is a Flask extension for multi-tenancy support using subdomains and SQLAlchemy schemas. The `MultiTenancyMiddleware` extracts the tenant from the request host and switches the database schema accordingly. If no tenant is extracted, it defaults to the public schema.
 
+### Example and Demos
+You can find an example multi-tenant blog application at [this repo](https://github.com/Flask-Tenants/demo_app)
+
 ## Installation
 
 ```bash
@@ -212,7 +215,4 @@ from flask import g
 
 tanks = g.db_session.query(Tank).all()
 ```
-
-### Example and Demos
-You can find an example multi-tenant blog application at [this repo](https://github.com/Flask-Tenants/demo_app)
 
