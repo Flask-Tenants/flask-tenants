@@ -38,8 +38,7 @@ Create a Flask application and initialize SQLAlchemy. Set up the multi-tenancy m
 ```python
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_tenants import MultiTenancyMiddleware
-from flask_tenants import init_app as tenants_init_app, create_tenancy
+from flask_tenants import FlaskTenants, db
 from public.models import Tenant, Domain
 
 
@@ -47,11 +46,9 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://user:password@localhost/dbname'
 db = SQLAlchemy(app)
 
-# Initialize the tenancy
-tenants_init_app(app, tenant_model=Tenant, domain_model=Domain)
-
-# Set up tenancy middleware
-tenancy = create_tenancy(app, db, tenant_url_prefix='/_tenant')
+# Initialize Flask-Tenants
+flask_tenants = FlaskTenants(app, tenant_model=Tenant, domain_model=Domain, db=db, tenant_url_prefix='/_tenant')
+flask_tenants.init()
 ```
 
 #### tenant_url_prefix
@@ -162,7 +159,8 @@ def create_app():
     # Register error handlers
     register_error_handlers(app)
 
-    tenants_init_app(app, tenant_model=Tenant, domain_model=Domain)
+    # Initialize Flask Tenants
+    flask_tenants = FlaskTenants(app, tenant_model=Tenant, domain_model=Domain, db=db, tenant_url_prefix='/_tenant')
     ...
 ```
 

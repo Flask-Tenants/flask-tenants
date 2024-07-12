@@ -1,7 +1,9 @@
 from werkzeug.wrappers import Request
 from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy.sql import text
 from flask import g, request, Blueprint, current_app
 import logging
+from .utils import register_event_listeners, register_engine_event_listeners
 from .exceptions import *
 
 logger = logging.getLogger(__name__)
@@ -57,16 +59,12 @@ class MultiTenancyMiddleware:
             if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
                 logger.debug(f"Tenant '{g.tenant}' is deactivated.")
                 raise TenantActivationError
+            
+            g.db_session.execute(text(f"SET search_path TO {g.tenant}, public"))
 
     def _teardown_request_func(self, exception=None):
         if hasattr(g, 'db_session'):
             current_app.db_session.remove()
-
-    def create_tenant_blueprint(self, name):
-        return Blueprint(name, __name__, url_prefix=self.tenant_url_prefix)
-
-    def create_public_blueprint(self, name):
-        return Blueprint(name, __name__)
 
 
 def create_tenancy(app, db, non_tenant_subdomains=None, tenant_url_prefix=DEFAULT_TENANT_URL_PREFIX):
@@ -74,3 +72,44 @@ def create_tenancy(app, db, non_tenant_subdomains=None, tenant_url_prefix=DEFAUL
     app.wsgi_app = url_rewrite_middleware
     multi_tenancy_middleware = MultiTenancyMiddleware(app, db, tenant_url_prefix=tenant_url_prefix)
     return multi_tenancy_middleware
+
+
+class FlaskTenants:
+    def __init__(self, app=None, tenant_model=None, domain_model=None, db=None, tenant_url_prefix='/_tenant'):
+        self.app = app
+        self.tenant_model = tenant_model
+        self.domain_model = domain_model
+        self.db = db
+        self.multi_tenancy_middleware = None
+        self.tenant_url_prefix = tenant_url_prefix
+
+    def init(self, app=None, tenant_model=None, domain_model=None):
+        if app:
+            self.app = app
+        if tenant_model:
+            self.tenant_model = tenant_model
+        if domain_model:
+            self.domain_model = domain_model
+
+        if not self.app:
+            raise ValueError("Flask application instance must be provided")
+        if not self.db:
+            raise ValueError("Database instance must be provided")
+
+        self.db.init_app(self.app)
+
+        if self.tenant_model:
+            setattr(self.db.Model, 'Tenant', self.tenant_model)
+        if self.domain_model:
+            setattr(self.db.Model, 'Domain', self.domain_model)
+
+        with self.app.app_context():
+            register_event_listeners()
+            register_engine_event_listeners(self.db.engine)
+            self.multi_tenancy_middleware = create_tenancy(self.app, self.db, tenant_url_prefix=self.tenant_url_prefix)
+
+    def create_tenant_blueprint(self, name):
+        return Blueprint(name, __name__, url_prefix=self.tenant_url_prefix)
+
+    def create_public_blueprint(self, name):
+        return Blueprint(name, __name__)
