@@ -1,5 +1,5 @@
 import logging as logger
-from sqlalchemy import event
+from sqlalchemy import event, Table, Column, ForeignKey
 from sqlalchemy.orm import scoped_session, sessionmaker, Session, attributes
 from sqlalchemy.sql import text
 from .models import db
@@ -36,6 +36,29 @@ def create_schema(schema_name):
     finally:
         session.close()
 
+def copy_column(column, **kwargs):
+    # Create a copy of the given column
+    # This includes basic attributes; adapt as needed for other properties like server defaults
+    copy_args = {}
+    # Preserve the type of the column
+    copy_args['type_'] = column.type
+    # If the column is a primary key
+    copy_args['primary_key'] = column.primary_key
+    # Copy nullable attribute
+    copy_args['nullable'] = column.nullable
+    # Copy default values
+    copy_args['default'] = column.default
+    # Copy autoincrement status
+    copy_args['autoincrement'] = column.autoincrement
+    # Foreign keys are more complex due to constraints relating to the table name
+    if column.foreign_keys:
+        # This assumes copying FKs in a way that's often but not always appropriate; be cautious
+        fk = next(iter(column.foreign_keys))
+        copy_args['foreign_keys'] = ForeignKey(fk.target_fullname)
+    # Allow overriding any attribute from kwargs
+    copy_args.update(kwargs)
+    
+    return Column(column.name, **copy_args)
 
 def create_tables(schema_name):
     session = scoped_session(sessionmaker(bind=db.engine))()
@@ -44,10 +67,17 @@ def create_tables(schema_name):
         metadata = db.Model.metadata
 
         tables_to_create = []
-        for table in metadata.tables.values():
+        base_tables = list(metadata.tables.values())
+        for table in base_tables:
             if table.info.get('tenant_specific'):
-                table.schema = schema_name
-                tables_to_create.append(table)
+                new_table = Table(
+                    table.name,
+                    metadata,
+                    *[copy_column(c) for c in table.columns],
+                    schema = schema_name,
+                    extend_existing=True
+                )
+                tables_to_create.append(new_table)
 
         metadata.create_all(bind=session.bind, tables=tables_to_create)
         logger.info(f"Tables created for schema '{schema_name}'")
