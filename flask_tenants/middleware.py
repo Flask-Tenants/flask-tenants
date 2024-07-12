@@ -59,9 +59,8 @@ class MultiTenancyMiddleware:
             if hasattr(tenant_object, 'deactivated') and tenant_object.deactivated:
                 logger.debug(f"Tenant '{g.tenant}' is deactivated.")
                 raise TenantActivationError
-            
-            g.db_session.execute(text(f"SET search_path TO {g.tenant}, public"))
 
+            g.db_session.execute(text("SET search_path TO :tenant, public"), {'tenant': g.tenant})
     def _teardown_request_func(self, exception=None):
         if hasattr(g, 'db_session'):
             current_app.db_session.remove()
