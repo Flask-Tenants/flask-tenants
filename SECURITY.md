@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-As of April 2024 (and until this document is updated), only the v0.4.x releases of Flask-Tenants are supported for updates and bug fixes. Any previous versions are currently not supported and users are advised to use them "at their own risk".
+As of July 2024 (and until this document is updated), only the v0.5.x releases of Flask-Tenants are supported for updates and bug fixes. Any previous versions are currently not supported and users are advised to use them "at their own risk".
 
 ## Reporting a Vulnerability
 
