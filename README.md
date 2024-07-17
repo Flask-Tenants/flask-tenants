@@ -1,9 +1,3 @@
-# Pray with us
-
-Given the terrible events of July 13th, 2024, we ask that all people love and pray for their Democrat neighbors that they may come to Christ.
-
-![Support Trump 2024](https://github.com/Flask-Tenants/flask-tenants/blob/main/trump.png?raw=true)
-
 # Flask Tenants
 
 Flask Tenants is a Flask extension for multi-tenancy support using subdomains and SQLAlchemy schemas. The `MultiTenancyMiddleware` extracts the tenant from the request host and switches the database schema accordingly. If no tenant is extracted, it defaults to the public schema.
